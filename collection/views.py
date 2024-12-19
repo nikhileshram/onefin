@@ -17,35 +17,6 @@ class CollectionDetailView(views.APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, collection_uuid=None):
-
-        try:
-            user_id = request.user.id
-            movie_collections = MovieCollection.objects.filter(user_id=user_id)
-            collection_ids = movie_collections.values_list('collection_id', flat=True)
-            movie_ids = movie_collections.values_list('movie_id', flat=True)
-            collections = Collection.objects.filter(id__in=collection_ids)
-            data = {}
-            data['is_success'] = True
-            collection_data = []
-            for collection in collections:
-                collection_data.append({
-                    'title': collection.title,
-                    'description': collection.description,
-                    'uuid': collection.id
-                })
-            data['collections'] = collection_data
-            top_genres = Movie.objects.values('genre').annotate(movie_count=Count('id')).order_by('-movie_count')[:3]
-            top_genre_list = [genres['genre'] for genres in top_genres]
-            data['favourite_genres'] = ','.join(top_genre_list)
-            return JsonResponse(data, status=200, safe=False)
-        
-        except Exception as e:
-            print('Error getting the collections: ', e)
-            traceback.print_exc()
-            return JsonResponse({'error': 'Failed to get the collections'}, status=500)
-
-
     def get(self, request, collection_uuid):
         try:
             collection = Collection.objects.filter(id=collection_uuid).first()
@@ -74,39 +45,6 @@ class CollectionDetailView(views.APIView):
             print('Error getting the collection: ', e)
             return JsonResponse({'error': 'Failed to get the collection'}, status=500)
     
-
-    def post(self, request):
-        
-        try:
-            with transaction.atomic():
-                data = request.data
-                print('data: ', data)
-                
-                # check if name is present in the request data
-                if 'title' not in data:
-                    return JsonResponse({'error': 'Collection title is required'}, status=400)
-                
-                title = data['title']
-                description = data.get('description', None)
-                movies = data.get('movies', [])
-                id = uuid4()
-                collection = Collection.objects.create(id=id , title=title, description=description)
-                print('collection: ', collection)
-
-                for movie in movies:
-                    title = movie.get('title', None)
-                    description = movie.get('description', None)
-                    genre = movie.get('genre', None)
-                    uuid = movie.get('uuid', None)
-                    movie, created = Movie.objects.get_or_create(id=uuid, defaults={'title': title, 'description': description, 'genre': genre, 'id': uuid})
-                    MovieCollection.objects.create(id=id, collection=collection, movie=movie, user=request.user)
-
-                return JsonResponse({'collection_uuid': collection.id}, status=201)
-        
-        except Exception as e:
-            print('Error creating the collection: ', e)
-            traceback.print_exc()
-            return JsonResponse({'error': 'Failed to create the collection'}, status=500)
     
     
     def put(self, request, collection_uuid):
@@ -144,7 +82,7 @@ class CollectionDetailView(views.APIView):
                     uuid = movie.get('uuid', None)
                     movie, created = Movie.objects.get_or_create(id=uuid, defaults={'title': title, 'description': description, 'genre': genre, 'id': uuid})
                     id = uuid4()
-                    MovieCollection.objects.create(id=id, collection=collection, movie=movie, user=request.user)
+                    MovieCollection.objects.create(id=id, collection=collection, movie=movie)
 
                 return JsonResponse({'collection_uuid': collection.id}, status=201)
         
@@ -160,7 +98,7 @@ class CollectionDetailView(views.APIView):
             if collection_uuid is None:
                 return JsonResponse({'error': 'Collection ID is required'}, status=400)
             else:
-                if Collection.objects.filter(id=collection_uuid).count() == 0:
+                if Collection.objects.filter(id=collection_uuid, user=request.user).count() == 0:
                     return JsonResponse({'error': 'Collection with the given ID does not exist'}, status=404)
                 print('deleting the collection with id: ', collection_uuid)
                 Collection.objects.filter(id=collection_uuid).delete()
@@ -180,10 +118,9 @@ class CollectionListView(views.APIView):
 
         try:
             user_id = request.user.id
-            movie_collections = MovieCollection.objects.filter(user_id=user_id)
-            collection_ids = movie_collections.values_list('collection_id', flat=True)
+            collections = Collection.objects.filter(user_id=user_id)
+            movie_collections = MovieCollection.objects.filter(collection_id__in=collections.values_list('id', flat=True))
             movie_ids = movie_collections.values_list('movie_id', flat=True)
-            collections = Collection.objects.filter(id__in=collection_ids)
             data = {}
             data['is_success'] = True
             collection_data = []
@@ -194,7 +131,7 @@ class CollectionListView(views.APIView):
                     'uuid': collection.id
                 })
             data['collections'] = collection_data
-            top_genres = Movie.objects.values('genre').annotate(movie_count=Count('id')).order_by('-movie_count')[:3]
+            top_genres = Movie.objects.filter(id__in=movie_ids).values('genre').annotate(movie_count=Count('id')).order_by('-movie_count')[:3]
             top_genre_list = [genres['genre'] for genres in top_genres]
             data['favourite_genres'] = ','.join(top_genre_list)
             return JsonResponse(data, status=200, safe=False)
@@ -203,3 +140,37 @@ class CollectionListView(views.APIView):
             print('Error getting the collections: ', e)
             traceback.print_exc()
             return JsonResponse({'error': 'Failed to get the collections'}, status=500)
+
+    
+    def post(self, request):
+        
+        try:
+            with transaction.atomic():
+                data = request.data
+                print('data: ', data)
+                
+                # check if name is present in the request data
+                if 'title' not in data:
+                    return JsonResponse({'error': 'Collection title is required'}, status=400)
+                
+                title = data['title']
+                description = data.get('description', None)
+                movies = data.get('movies', [])
+                id = uuid4()
+                collection = Collection.objects.create(id=id , title=title, description=description, user=request.user)
+                print('collection: ', collection)
+
+                for movie in movies:
+                    title = movie.get('title', None)
+                    description = movie.get('description', None)
+                    genre = movie.get('genre', None)
+                    uuid = movie.get('uuid', None)
+                    movie, created = Movie.objects.get_or_create(id=uuid, defaults={'title': title, 'description': description, 'genre': genre, 'id': uuid})
+                    MovieCollection.objects.create(id=id, collection=collection, movie=movie)
+
+                return JsonResponse({'collection_uuid': collection.id}, status=201)
+        
+        except Exception as e:
+            print('Error creating the collection: ', e)
+            traceback.print_exc()
+            return JsonResponse({'error': 'Failed to create the collection'}, status=500)
