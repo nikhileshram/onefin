@@ -28,7 +28,7 @@ class CollectionDetailView(views.APIView):
         
         try:
             collection = update_collection_using_uuid(request, collection_uuid)
-            return JsonResponse({'collection_uuid': collection.id}, status=201)
+            return JsonResponse({'collection_uuid': collection.id}, status=200)
         
         except Exception as e:
             traceback.print_exc()
